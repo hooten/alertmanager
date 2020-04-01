@@ -1,0 +1,4 @@
+tlsConfig:
+  tlsCertPath: certs/node1.pem
+  tlsKeyPath: certs/node1-key.pem
+  insecureSkipVerify: true
