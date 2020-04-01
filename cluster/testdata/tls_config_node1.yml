@@ -1,0 +1,3 @@
+tlsConfig:
+  tlsCertPath: "../examples/ha/tls/certs/node1.pem"
+  tlsKeyPath: "../examples/ha/tls/certs/node1-key.pem"
