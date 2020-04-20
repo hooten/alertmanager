@@ -1,0 +1,3 @@
+tlsConfig:
+  tlsCertPath: certs/node2.pem
+  tlsKeyPath: certs/node2-key.pem
