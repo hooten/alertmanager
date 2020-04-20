@@ -89,7 +89,11 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 			require.Nil(t, err)
 			if tc.expectedPort == 0 {
 				require.True(t, tc.expectedPort < port)
+<<<<<<< HEAD
 				require.True(t, uint32(port) <= uint32(1<<32 - 1))
+=======
+				require.True(t, uint32(port) <= uint32(1<<32-1))
+>>>>>>> Add TLS option to gossip cluster
 			} else {
 				require.Equal(t, tc.expectedPort, port)
 			}
@@ -117,7 +121,7 @@ func TestWriteTo(t *testing.T) {
 
 	_, err := t1.WriteTo(sent, to)
 	require.Nil(t, err)
-	packet := <- t2.PacketCh()
+	packet := <-t2.PacketCh()
 	require.Equal(t, sent, packet.Buf)
 	require.Equal(t, from, packet.From.String())
 }
@@ -132,10 +136,10 @@ func TestDialTimout(t *testing.T) {
 	defer t2.Shutdown()
 
 	addr := fmt.Sprintf("%s:%d", t2.bindAddr, t2.GetAutoBindPort())
-	from, err := t1.DialTimeout(addr, 5 * time.Second)
-	defer from.Close()
+	from, err := t1.DialTimeout(addr, 5*time.Second)
 	require.Nil(t, err)
-	to := <- t2.StreamCh()
+	defer from.Close()
+	to := <-t2.StreamCh()
 
 	sent := []byte(("test stream"))
 	_, err = from.Write(sent)
@@ -148,7 +152,6 @@ func TestDialTimout(t *testing.T) {
 	require.Equal(t, len(sent), n)
 	require.Equal(t, sent, buf)
 }
-
 
 type logWr struct {
 	bytes []byte
