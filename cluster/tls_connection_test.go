@@ -92,9 +92,12 @@ func TestConnType(t *testing.T) {
 
 func TestWriteStream(t *testing.T) {
 	w, r := net.Pipe()
+	wrapper := &connWrapper{
+		connection: w,
+	}
 	defer r.Close()
 	go func() {
-		writeStream(w)
+		writeStream(wrapper)
 		w.Close()
 	}()
 	out, err := ioutil.ReadAll(r)
@@ -117,7 +120,7 @@ func TestWritePacket(t *testing.T) {
 		w, r := net.Pipe()
 		defer r.Close()
 		go func() {
-			writePacket(w, tc.fromAddr, []byte(tc.msg))
+			writePacket(&connWrapper{connection: w}, tc.fromAddr, []byte(tc.msg))
 			w.Close()
 		}()
 		out, err := ioutil.ReadAll(r)
@@ -135,7 +138,7 @@ func TestRead_Stream(t *testing.T) {
 	w, r := net.Pipe()
 	defer r.Close()
 	go func() {
-		writeStream(w)
+		writeStream(&connWrapper{connection: w})
 		w.Close()
 	}()
 	packet, err := read(r)
@@ -157,7 +160,7 @@ func TestRead_Packet(t *testing.T) {
 		w, r := net.Pipe()
 		defer r.Close()
 		go func() {
-			writePacket(w, tc.addr, []byte(tc.s))
+			writePacket(&connWrapper{connection: w}, tc.addr, []byte(tc.s))
 			w.Close()
 		}()
 		packet, err := read(r)
@@ -175,7 +178,7 @@ func TestRead_Error(t *testing.T) {
 	w, r := net.Pipe()
 	defer r.Close()
 	go func() {
-		write(w, none, []byte("invalid type"))
+		write(&connWrapper{connection: w}, none, []byte("invalid type"))
 		w.Close()
 	}()
 	packet, err := read(r)

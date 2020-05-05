@@ -63,7 +63,7 @@ func connType(b byte) (connectionType, error) {
 
 // writePacket writes all the bytes in one operation so no concurrent write happens in between.
 // It prefixes the connection type, the from address and the message length.
-func writePacket(conn net.Conn, fromAddr string, b []byte) error {
+func writePacket(conn *connWrapper, fromAddr string, b []byte) error {
 	addr := append([]byte(fromAddr), delim)
 	length := append([]byte(strconv.Itoa(len(b))), delim)
 	prefix := append(addr, length...)
@@ -71,11 +71,11 @@ func writePacket(conn net.Conn, fromAddr string, b []byte) error {
 }
 
 // writeStream simply signals that this is a stream connection by sending the connection type.
-func writeStream(conn net.Conn) error {
+func writeStream(conn *connWrapper) error {
 	return write(conn, stream, []byte{})
 }
 
-func write(conn net.Conn, ct connectionType, b []byte) error {
+func write(conn *connWrapper, ct connectionType, b []byte) error {
 	prefix, err := ct.bytes()
 	if err != nil {
 		return errors.Wrap(err, "unable to write magic bytes")

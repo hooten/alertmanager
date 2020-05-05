@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-kit/kit/log"
@@ -53,7 +52,7 @@ type TLSTransport struct {
 	listener net.Listener
 	packetCh chan *memberlist.Packet
 	streamCh chan net.Conn
-	tlsConf  *tls.Config
+	connPool *connectionPool
 
 	packetsSent prometheus.Counter
 	packetsRcvd prometheus.Counter
@@ -73,7 +72,6 @@ func NewTLSTransport(
 	reg prometheus.Registerer,
 	bindAddr string,
 	bindPort int,
-	handlers int,
 	tlsConf *tls.Config,
 ) (*TLSTransport, error) {
 
@@ -86,6 +84,7 @@ func NewTLSTransport(
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to start TLS listener on %q port %d", bindAddr, bindPort))
 	}
+	pool := newConnectionPool(tlsConf)
 
 	ctx, cancel := context.WithCancel(ctx)
 	t := &TLSTransport{
@@ -95,11 +94,10 @@ func NewTLSTransport(
 		bindAddr: bindAddr,
 		bindPort: bindPort,
 		done:     make(chan struct{}),
-		handlers: handlers,
 		listener: listener,
 		packetCh: make(chan *memberlist.Packet),
 		streamCh: make(chan net.Conn),
-		tlsConf:  tlsConf,
+		connPool: pool,
 	}
 
 	t.registerMetrics(reg)
@@ -174,21 +172,15 @@ func (t *TLSTransport) Shutdown() error {
 	return err
 }
 
-// WriteTo is a packet-oriented interface that creates a connection,
-// writes to it, and closes it. It also returns a time stamp of when
+// WriteTo is a packet-oriented interface that borrows a connection from pool,
+// writes to it. It also returns a time stamp of when
 // the packet was written.
 func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
-	dialer := &net.Dialer{Timeout: DefaultTcpTimeout}
-	conn, err := tls.DialWithDialer(dialer, network, addr, t.tlsConf)
+	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout)
 	if err != nil {
 		t.writeErrs.WithLabelValues("packet").Inc()
 		return time.Now(), errors.Wrap(err, "failed to dial")
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			level.Debug(t.logger).Log("msg", "unable to close connection", "addr", addr, "err", err)
-		}
-	}()
 	fromAddr := t.listener.Addr().String()
 	err = writePacket(conn, fromAddr, b)
 	if err != nil {
@@ -202,8 +194,7 @@ func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 // DialTimeout is used to create a connection that allows memberlist
 // to perform two-way communications with a peer.
 func (t *TLSTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn, error) {
-	dialer := &net.Dialer{Timeout: timeout}
-	conn, err := tls.DialWithDialer(dialer, network, addr, t.tlsConf)
+	conn, err := t.connPool.createConnection(addr, timeout)
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
 		return nil, errors.Wrap(err, "failed to dial")
@@ -211,10 +202,10 @@ func (t *TLSTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn
 	err = writeStream(conn)
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
-		return conn, errors.Wrap(err, "failed to create stream connection")
+		return conn.connection, errors.Wrap(err, "failed to create stream connection")
 	}
 	t.streamsSent.Inc()
-	return conn, nil
+	return conn.connection, nil
 }
 
 // GetAutoBindPort returns the bind port that was automatically given by the system
@@ -225,19 +216,6 @@ func (t *TLSTransport) GetAutoBindPort() int {
 
 // listen starts up multiple handlers accepting concurrent connections.
 func (t *TLSTransport) listen() {
-	var wg sync.WaitGroup
-	wg.Add(t.handlers)
-	for i := 0; i < t.handlers; i++ {
-		go func() {
-			t.handle()
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-}
-
-// handle is a worker in a pool of handlers that read and parse connections.
-func (t *TLSTransport) handle() {
 	for {
 		select {
 		case <-t.ctx.Done():
@@ -253,21 +231,30 @@ func (t *TLSTransport) handle() {
 				}
 				continue
 			}
-			packet, err := read(conn)
-			if err != nil {
-				level.Debug(t.logger).Log("msg", "error reading from connection", "err", err)
-				t.readErrs.Inc()
-				continue
-			}
-			if packet != nil {
-				n := len(packet.Buf)
-				t.packetCh <- packet
-				_ = conn.Close()
-				t.packetsRcvd.Add(float64(n))
-			} else {
-				t.streamCh <- conn
-				t.streamsRcvd.Inc()
-			}
+			go func() {
+				for {
+					packet, err := read(conn)
+					if err != nil {
+						level.Debug(t.logger).Log("msg", "error reading from connection", "err", err)
+						t.readErrs.Inc()
+						return
+					}
+					select {
+					case <-t.ctx.Done():
+						return
+					default:
+						if packet != nil {
+							n := len(packet.Buf)
+							t.packetCh <- packet
+							t.packetsRcvd.Add(float64(n))
+						} else {
+							t.streamCh <- conn
+							t.streamsRcvd.Inc()
+							return
+						}
+					}
+				}
+			}()
 		}
 	}
 }

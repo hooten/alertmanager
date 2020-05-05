@@ -103,7 +103,6 @@ const (
 	DefaultReconnectInterval = 10 * time.Second
 	DefaultReconnectTimeout  = 6 * time.Hour
 	DefaultRefreshInterval   = 15 * time.Second
-	DefaultTLSGossipHandlers = 10
 	maxGossipPacketSize      = 1400
 )
 
@@ -220,7 +219,7 @@ func Create(
 		if err != nil {
 			return nil, errors.Wrap(err, "tls config file")
 		}
-		cfg.Transport, err = NewTLSTransport(context.Background(), l, reg, cfg.BindAddr, cfg.BindPort, DefaultTLSGossipHandlers, tlsConfig)
+		cfg.Transport, err = NewTLSTransport(context.Background(), l, reg, cfg.BindAddr, cfg.BindPort, tlsConfig)
 		if err != nil {
 			return nil, errors.Wrap(err, "tls transport")
 		}
