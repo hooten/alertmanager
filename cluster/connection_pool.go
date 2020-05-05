@@ -30,7 +30,7 @@ func newConnectionPool(tlsConf *tls.Config) *connectionPool {
 
 func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration) (*connWrapper, error) {
 	var err error
-	key := fmt.Sprintf("%s/%s", addr, timeout)
+	key := fmt.Sprintf("%s/%v", addr, timeout)
 	conn, ok := pool.pool[key]
 	if !ok || !conn.isAlive() {
 		conn, err = pool.createConnection(addr, timeout)
