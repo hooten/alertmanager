@@ -228,8 +228,11 @@ func (t *TLSTransport) listen() {
 				if !strings.Contains(err.Error(), "use of closed network connection") {
 					t.readErrs.Inc()
 					level.Debug(t.logger).Log("msg", "error accepting connection", "err", err)
+					continue
+				} else {
+					return
 				}
-				continue
+
 			}
 			go func() {
 				for {
