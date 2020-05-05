@@ -214,26 +214,24 @@ func (t *TLSTransport) GetAutoBindPort() int {
 // listen starts up multiple handlers accepting concurrent connections.
 func (t *TLSTransport) listen() {
 	for {
-		done := make(chan struct{})
 		select {
 		case <-t.ctx.Done():
-			<-done
+
 			return
 		default:
 			conn, err := t.listener.Accept()
 			if err != nil {
 				// The error "use of closed network connection" is returned when the listener is closed.
 				// It is not exported in a more reasonable way. See https://github.com/golang/go/issues/4373.
-				if !strings.Contains(err.Error(), "use of closed network connection") {
-					t.readErrs.Inc()
-					level.Debug(t.logger).Log("msg", "error accepting connection", "err", err)
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					return
 				}
-				continue
-			}
-			go func() {
+				t.readErrs.Inc()
+				level.Debug(t.logger).Log("msg", "error accepting connection", "err", err)
+
+			} else {
 				go t.handle(conn)
-				close(done)
-			}()
+			}
 		}
 	}
 }

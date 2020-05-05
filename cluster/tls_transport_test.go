@@ -80,7 +80,6 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 		tlsConf, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
 		transport, err := NewTLSTransport(context2.Background(), logger, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		require.Nil(t, err)
-		defer transport.Shutdown()
 		ip, port, err := transport.FinalAdvertiseAddr(tc.inputIp, tc.inputPort)
 		if len(tc.expectedError) > 0 {
 			require.Equal(t, tc.expectedError, err.Error())
@@ -98,6 +97,7 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 				require.Equal(t, tc.expectedIp, ip.String())
 			}
 		}
+		transport.Shutdown()
 	}
 }
 
