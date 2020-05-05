@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-
 	"time"
 
 	"github.com/go-kit/kit/log"
@@ -84,8 +83,6 @@ func NewTLSTransport(
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to start TLS listener on %q port %d", bindAddr, bindPort))
 	}
-	pool := newConnectionPool(tlsConf)
-
 	ctx, cancel := context.WithCancel(ctx)
 	t := &TLSTransport{
 		ctx:      ctx,
@@ -97,7 +94,7 @@ func NewTLSTransport(
 		listener: listener,
 		packetCh: make(chan *memberlist.Packet),
 		streamCh: make(chan net.Conn),
-		connPool: pool,
+		connPool: newConnectionPool(tlsConf),
 	}
 
 	t.registerMetrics(reg)
@@ -172,8 +169,8 @@ func (t *TLSTransport) Shutdown() error {
 	return err
 }
 
-// WriteTo is a packet-oriented interface that borrows a connection from pool,
-// writes to it. It also returns a time stamp of when
+// WriteTo is a packet-oriented interface that borrows a connection
+// from the pool, and writes to it. It also returns a timestamp of when
 // the packet was written.
 func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout)
@@ -217,8 +214,10 @@ func (t *TLSTransport) GetAutoBindPort() int {
 // listen starts up multiple handlers accepting concurrent connections.
 func (t *TLSTransport) listen() {
 	for {
+		done := make(chan struct{})
 		select {
 		case <-t.ctx.Done():
+			<-done
 			return
 		default:
 			conn, err := t.listener.Accept()
@@ -232,29 +231,34 @@ func (t *TLSTransport) listen() {
 				continue
 			}
 			go func() {
-				for {
-					packet, err := read(conn)
-					if err != nil {
-						level.Debug(t.logger).Log("msg", "error reading from connection", "err", err)
-						t.readErrs.Inc()
-						return
-					}
-					select {
-					case <-t.ctx.Done():
-						return
-					default:
-						if packet != nil {
-							n := len(packet.Buf)
-							t.packetCh <- packet
-							t.packetsRcvd.Add(float64(n))
-						} else {
-							t.streamCh <- conn
-							t.streamsRcvd.Inc()
-							return
-						}
-					}
-				}
+				go t.handle(conn)
+				close(done)
 			}()
+		}
+	}
+}
+
+func (t *TLSTransport) handle(conn net.Conn) {
+	for {
+		packet, err := read(conn)
+		if err != nil {
+			level.Debug(t.logger).Log("msg", "error reading from connection", "err", err)
+			t.readErrs.Inc()
+			return
+		}
+		select {
+		case <-t.ctx.Done():
+			return
+		default:
+			if packet != nil {
+				n := len(packet.Buf)
+				t.packetCh <- packet
+				t.packetsRcvd.Add(float64(n))
+			} else {
+				t.streamCh <- conn
+				t.streamsRcvd.Inc()
+				return
+			}
 		}
 	}
 }

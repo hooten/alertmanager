@@ -103,7 +103,6 @@ const (
 	DefaultReconnectInterval = 10 * time.Second
 	DefaultReconnectTimeout  = 6 * time.Hour
 	DefaultRefreshInterval   = 15 * time.Second
-	DefaultTLSGossipHandlers = 10
 	maxGossipPacketSize      = 1400
 )
 
