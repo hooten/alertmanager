@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 
 	"time"
 
@@ -231,7 +230,7 @@ func (t *TLSTransport) listen() {
 					t.readErrs.Inc()
 					level.Debug(t.logger).Log("msg", "error accepting connection", "err", err)
 				}
-				continue
+				return
 			}
 			go func() {
 				for {
