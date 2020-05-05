@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
+
 	"time"
 
 	"github.com/go-kit/kit/log"

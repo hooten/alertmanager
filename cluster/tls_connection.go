@@ -63,6 +63,7 @@ func connType(b byte) (connectionType, error) {
 
 // writePacket writes all the bytes in one operation so no concurrent write happens in between.
 // It prefixes the connection type, the from address and the message length.
+
 func writePacket(conn *connWrapper, fromAddr string, b []byte) error {
 	addr := append([]byte(fromAddr), delim)
 	length := append([]byte(strconv.Itoa(len(b))), delim)

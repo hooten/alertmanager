@@ -43,6 +43,7 @@ func TestNewTLSTransport(t *testing.T) {
 	l := log.NewNopLogger()
 	for _, tc := range testCases {
 		tlsConf, _ := config.GetTLSConfig(tc.tlsConfFile)
+
 		transport, err := NewTLSTransport(context2.Background(), l, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		if len(tc.err) > 0 {
 			require.Equal(t, tc.err, err.Error())
@@ -103,6 +104,7 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 
 func TestWriteTo(t *testing.T) {
 	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
+
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	defer t1.Shutdown()
 
@@ -119,6 +121,7 @@ func TestWriteTo(t *testing.T) {
 	require.Equal(t, sent, packet.Buf)
 	require.Equal(t, from, packet.From.String())
 }
+
 
 func BenchmarkWriteTo(b *testing.B) {
 	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
@@ -141,6 +144,7 @@ func BenchmarkWriteTo(b *testing.B) {
 	require.Equal(b, sent, packet.Buf)
 	require.Equal(b, from, packet.From.String())
 }
+
 func TestDialTimout(t *testing.T) {
 	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
@@ -180,6 +184,7 @@ func (l *logWr) Write(p []byte) (n int, err error) {
 func TestShutdown(t *testing.T) {
 	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
 	l := &logWr{}
+
 	t1, _ := NewTLSTransport(context2.Background(), log.NewLogfmtLogger(l), nil, "127.0.0.1", 0, tlsConf1)
 	// Sleeping to make sure listeners have started and can subsequently be shut down gracefully.
 	time.Sleep(500 * time.Millisecond)
