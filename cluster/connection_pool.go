@@ -8,13 +8,12 @@ import (
 	"time"
 )
 
-// connectionPool Struct hold all connction mapping
 type connectionPool struct {
 	pool    map[string]*connWrapper
 	tlsConf *tls.Config
 }
 
-// connWrapper struct is wrapper on net.Conn
+// connWrapper wraps net.Conn with connection pooling data.
 type connWrapper struct {
 	connection net.Conn
 	timeout    time.Duration
@@ -22,7 +21,6 @@ type connWrapper struct {
 	live       bool
 }
 
-// newConnectionPool return connection pool instance
 func newConnectionPool(tlsConf *tls.Config) *connectionPool {
 	return &connectionPool{
 		pool:    make(map[string]*connWrapper),
