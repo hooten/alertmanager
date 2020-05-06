@@ -42,16 +42,17 @@ const (
 // TLSTransport is a Transport implementation that uses TLS over TCP for both
 // packet and stream operations.
 type TLSTransport struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	logger   log.Logger
-	bindAddr string
-	bindPort int
-	done     chan struct{}
-	listener net.Listener
-	packetCh chan *memberlist.Packet
-	streamCh chan net.Conn
-	connPool *connectionPool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	logger    log.Logger
+	bindAddr  string
+	bindPort  int
+	done      chan struct{}
+	listener  net.Listener
+	packetCh  chan *memberlist.Packet
+	streamCh  chan net.Conn
+	connPool  *connectionPool
+	tlsConfig *tls.Config
 
 	packetsSent prometheus.Counter
 	packetsRcvd prometheus.Counter
@@ -85,16 +86,17 @@ func NewTLSTransport(
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	t := &TLSTransport{
-		ctx:      ctx,
-		cancel:   cancel,
-		logger:   logger,
-		bindAddr: bindAddr,
-		bindPort: bindPort,
-		done:     make(chan struct{}),
-		listener: listener,
-		packetCh: make(chan *memberlist.Packet),
-		streamCh: make(chan net.Conn),
-		connPool: newConnectionPool(tlsConf),
+		ctx:       ctx,
+		cancel:    cancel,
+		logger:    logger,
+		bindAddr:  bindAddr,
+		bindPort:  bindPort,
+		done:      make(chan struct{}),
+		listener:  listener,
+		packetCh:  make(chan *memberlist.Packet),
+		streamCh:  make(chan net.Conn),
+		connPool:  newConnectionPool(),
+		tlsConfig: tlsConf,
 	}
 
 	t.registerMetrics(reg)
@@ -170,16 +172,16 @@ func (t *TLSTransport) Shutdown() error {
 }
 
 // WriteTo is a packet-oriented interface that borrows a connection
-// from the pool, and writes to it. It also returns a timestamp of when
+// from the conns, and writes to it. It also returns a timestamp of when
 // the packet was written.
 func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
-	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout)
+	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout, t.tlsConfig)
 	if err != nil {
 		t.writeErrs.WithLabelValues("packet").Inc()
 		return time.Now(), errors.Wrap(err, "failed to dial")
 	}
 	fromAddr := t.listener.Addr().String()
-	err = writePacket(conn, fromAddr, b)
+	err = conn.writePacket(fromAddr, b)
 	if err != nil {
 		t.writeErrs.WithLabelValues("packet").Inc()
 		return time.Now(), errors.Wrap(err, "failed to write packet")
@@ -191,12 +193,12 @@ func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 // DialTimeout is used to create a connection that allows memberlist
 // to perform two-way communications with a peer.
 func (t *TLSTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn, error) {
-	conn, err := t.connPool.createConnection(addr, timeout)
+	conn, err := dialTLSConn(addr, timeout, t.tlsConfig)
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
 		return nil, errors.Wrap(err, "failed to dial")
 	}
-	err = writeStream(conn)
+	err = conn.writeStream()
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
 		return conn.connection, errors.Wrap(err, "failed to create stream connection")
@@ -238,7 +240,7 @@ func (t *TLSTransport) listen() {
 
 func (t *TLSTransport) handle(conn net.Conn) {
 	for {
-		packet, err := read(conn)
+		packet, err := rcvTLSConn(conn).read()
 		if err != nil {
 			level.Debug(t.logger).Log("msg", "error reading from connection", "err", err)
 			t.readErrs.Inc()

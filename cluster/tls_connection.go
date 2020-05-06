@@ -15,138 +15,144 @@ package cluster
 
 import (
 	"bufio"
+	"crypto/tls"
+	"encoding/binary"
 	"io"
 	"net"
-	"strconv"
-	"strings"
+	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
+
+	"github.com/prometheus/alertmanager/cluster/clusterpb"
 )
-
-const delim byte = '\n'
-
-type connectionType int
 
 const (
-	stream connectionType = iota
-	packet
-	none
+	version      = "v1.0.0"
+	uint32length = 4
 )
 
-func (ct connectionType) byte() (byte, error) {
-	if ct < 0 || ct > 1 {
-		return 'n', errors.New("invalid connection type")
-	}
-	return [...]byte{'s', 'p'}[ct], nil
+// tlsConn wraps net.Conn with connection pooling data.
+type tlsConn struct {
+	connection net.Conn
+	timeout    time.Duration
+	lock       sync.Mutex
+	live       bool
 }
 
-func (ct connectionType) bytes() ([]byte, error) {
-	b, err := ct.byte()
+func dialTLSConn(addr string, timeout time.Duration, tlsConfig *tls.Config) (*tlsConn, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+	conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
-	return []byte{b}, nil
+
+	return &tlsConn{
+		connection: conn,
+		timeout:    timeout,
+		live:       true,
+	}, nil
 }
 
-func connType(b byte) (connectionType, error) {
-	switch b {
-	case 's':
-		return stream, nil
-	case 'p':
-		return packet, nil
-	default:
-		return none, errors.New("invalid byte")
+func rcvTLSConn(conn net.Conn) *tlsConn {
+	return &tlsConn{
+		connection: conn,
+		live:       true,
 	}
+}
+
+// Write writes a byte array into the connection. It returns the number of bytes written and an error.
+func (conn *tlsConn) Write(b []byte) (int, error) {
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	n, err := conn.connection.Write(b)
+
+	if err != nil {
+		conn.live = false
+	}
+	return n, err
+}
+
+func (conn *tlsConn) alive() bool {
+	return conn.live
 }
 
 // writePacket writes all the bytes in one operation so no concurrent write happens in between.
-// It prefixes the connection type, the from address and the message length.
-func writePacket(conn *connWrapper, fromAddr string, b []byte) error {
-	addr := append([]byte(fromAddr), delim)
-	length := append([]byte(strconv.Itoa(len(b))), delim)
-	prefix := append(addr, length...)
-	return write(conn, packet, append(prefix, b...))
+// It prefixes the message length.
+func (conn *tlsConn) writePacket(fromAddr string, b []byte) error {
+	msg, err := proto.Marshal(&clusterpb.MemberlistMessage{
+		Version:  version,
+		Kind:     clusterpb.MemberlistMessage_PACKET,
+		FromAddr: fromAddr,
+		Msg:      b,
+	})
+	if err != nil {
+		return errors.Wrap(err, "unable to marshal memeberlist packet message")
+	}
+	buf := make([]byte, uint32length)
+	binary.LittleEndian.PutUint32(buf, uint32(len(msg)))
+	_, err = conn.Write(append(buf, msg...))
+	return err
 }
 
 // writeStream simply signals that this is a stream connection by sending the connection type.
-func writeStream(conn *connWrapper) error {
-	return write(conn, stream, []byte{})
-}
-
-func write(conn *connWrapper, ct connectionType, b []byte) error {
-	prefix, err := ct.bytes()
+func (conn *tlsConn) writeStream() error {
+	msg, err := proto.Marshal(&clusterpb.MemberlistMessage{
+		Version: version,
+		Kind:    clusterpb.MemberlistMessage_STREAM,
+	})
 	if err != nil {
-		return errors.Wrap(err, "unable to write magic bytes")
+		return errors.Wrap(err, "unable to marshal memeberlist stream message")
 	}
-	bytes := append(prefix, b...)
-	_, err = conn.Write(bytes)
-	return errors.Wrap(err, "failed to write packet")
+	buf := make([]byte, uint32length)
+	binary.LittleEndian.PutUint32(buf, uint32(len(msg)))
+	_, err = conn.Write(append(buf, msg...))
+	return err
 }
 
 // read returns a packet for packet connections or an error if there is one.
 // It returns nothing if the connection is meant to be streamed.
-func read(conn net.Conn) (*memberlist.Packet, error) {
-	if conn == nil {
+func (conn *tlsConn) read() (*memberlist.Packet, error) {
+	if conn.connection == nil {
 		return nil, errors.New("nil connection")
 	}
-	reader := bufio.NewReader(conn)
-	b, err := reader.ReadByte()
+	reader := bufio.NewReader(conn.connection)
+	lenBuf := make([]byte, uint32length)
+	_, err := io.ReadFull(reader, lenBuf)
 	if err != nil {
-		return nil, errors.Wrap(err, "error reading connection type") //here EOF
+		return nil, errors.Wrap(err, "error reading message length")
 	}
-	ct, err := connType(b)
+	msgLen := binary.LittleEndian.Uint32(lenBuf)
+	msgBuf := make([]byte, msgLen)
+	_, err = io.ReadFull(reader, msgBuf)
 	if err != nil {
-		return nil, errors.Wrap(err, "error parsing connection type")
+		return nil, errors.Wrap(err, "error reading message")
 	}
-	switch ct {
-	case stream:
+	pb := clusterpb.MemberlistMessage{}
+	err = proto.Unmarshal(msgBuf, &pb)
+	if err != nil {
+		return nil, errors.Wrap(err, "error parsing message")
+	}
+	switch pb.Kind {
+	case clusterpb.MemberlistMessage_STREAM:
 		return nil, nil
-	case packet:
-		return readPacket(reader)
+	case clusterpb.MemberlistMessage_PACKET:
+		return toPacket(pb)
 	default:
 		return nil, errors.New("could not read from either stream or packet channel")
 	}
 }
 
-func readPacket(reader *bufio.Reader) (*memberlist.Packet, error) {
-	addrStr, err := readPrefixPart(reader)
-	if err != nil {
-		return nil, errors.Wrap(err, "error reading packet sender address")
-	}
-	lenStr, err := readPrefixPart(reader)
-	if err != nil {
-		return nil, errors.Wrap(err, "error reading packet message length")
-	}
-	addr, err := net.ResolveTCPAddr(network, addrStr)
+func toPacket(pb clusterpb.MemberlistMessage) (*memberlist.Packet, error) {
+	addr, err := net.ResolveTCPAddr(network, pb.FromAddr)
 	if err != nil {
 		return nil, errors.Wrap(err, "error parsing packet sender address")
 	}
-	length, err := strconv.Atoi(lenStr)
-	if err != nil {
-		return nil, errors.Wrap(err, "error parsing packet message length")
-	}
-	buf := make([]byte, length)
-	_, err = io.ReadFull(reader, buf)
-	if err != nil {
-		return nil, errors.Wrap(err, "error reading packet message")
-	}
-	if len(buf) < 1 {
-		return nil, errors.New("packet too short")
-	}
-
 	return &memberlist.Packet{
-		Buf:       buf,
+		Buf:       pb.Msg,
 		From:      addr,
 		Timestamp: time.Now(),
 	}, nil
-}
-
-func readPrefixPart(reader *bufio.Reader) (string, error) {
-	part, err := reader.ReadString(delim)
-	if err != nil {
-		return "", errors.Wrap(err, "error reading packet part")
-	}
-	return strings.TrimRight(part, string(delim)), nil
 }
