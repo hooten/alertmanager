@@ -19,23 +19,25 @@ import (
 )
 
 type connectionPool struct {
-	conns map[string]*tlsConn
+	conns     map[string]*tlsConn
+	tlsConfig *tls.Config
 }
 
-func newConnectionPool() *connectionPool {
+func newConnectionPool(tlsConfig *tls.Config) *connectionPool {
 	return &connectionPool{
-		conns: make(map[string]*tlsConn),
+		conns:     make(map[string]*tlsConn),
+		tlsConfig: tlsConfig,
 	}
 }
 
 // borrowConnection returns a *tlsConn from the pool. The connection does not
 // need to be returned to the pool because there is per-connection locking.
-func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration, tlsConfig *tls.Config) (*tlsConn, error) {
+func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration) (*tlsConn, error) {
 	var err error
 	key := fmt.Sprintf("%s/%d", addr, int64(timeout))
 	conn, ok := pool.conns[key]
 	if !ok || !conn.alive() {
-		conn, err = dialTLSConn(addr, timeout, tlsConfig)
+		conn, err = dialTLSConn(addr, timeout, pool.tlsConfig)
 		if err != nil {
 			return nil, err
 		}

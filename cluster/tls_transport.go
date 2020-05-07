@@ -218,7 +218,6 @@ func (t *TLSTransport) listen() {
 	for {
 		select {
 		case <-t.ctx.Done():
-
 			return
 		default:
 			conn, err := t.listener.Accept()
