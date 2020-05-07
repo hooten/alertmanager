@@ -72,7 +72,7 @@ func NewTLSTransport(
 	reg prometheus.Registerer,
 	bindAddr string,
 	bindPort int,
-	tlsConf *tls.Config,
+	tlsConfig *tls.Config,
 ) (*TLSTransport, error) {
 
 	ip := net.ParseIP(bindAddr)
@@ -80,7 +80,7 @@ func NewTLSTransport(
 		return nil, fmt.Errorf("invalid bind address \"%s\"", bindAddr)
 	}
 	addr := &net.TCPAddr{IP: ip, Port: bindPort}
-	listener, err := tls.Listen(network, addr.String(), tlsConf)
+	listener, err := tls.Listen(network, addr.String(), tlsConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to start TLS listener on %q port %d", bindAddr, bindPort))
 	}
@@ -95,8 +95,8 @@ func NewTLSTransport(
 		listener:  listener,
 		packetCh:  make(chan *memberlist.Packet),
 		streamCh:  make(chan net.Conn),
-		connPool:  newConnectionPool(),
-		tlsConfig: tlsConf,
+		connPool:  newConnectionPool(tlsConfig),
+		tlsConfig: tlsConfig,
 	}
 
 	t.registerMetrics(reg)
@@ -175,7 +175,7 @@ func (t *TLSTransport) Shutdown() error {
 // from the conns, and writes to it. It also returns a timestamp of when
 // the packet was written.
 func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
-	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout, t.tlsConfig)
+	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout)
 	if err != nil {
 		t.writeErrs.WithLabelValues("packet").Inc()
 		return time.Now(), errors.Wrap(err, "failed to dial")
@@ -201,10 +201,10 @@ func (t *TLSTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn
 	err = conn.writeStream()
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
-		return conn.connection, errors.Wrap(err, "failed to create stream connection")
+		return conn.Conn, errors.Wrap(err, "failed to create stream connection")
 	}
 	t.streamsSent.Inc()
-	return conn.connection, nil
+	return conn.Conn, nil
 }
 
 // GetAutoBindPort returns the bind port that was automatically given by the system

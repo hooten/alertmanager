@@ -36,10 +36,10 @@ const (
 
 // tlsConn wraps net.Conn with connection pooling data.
 type tlsConn struct {
-	connection net.Conn
-	timeout    time.Duration
-	lock       sync.Mutex
-	live       bool
+	net.Conn
+	timeout time.Duration
+	lock    sync.Mutex
+	live    bool
 }
 
 func dialTLSConn(addr string, timeout time.Duration, tlsConfig *tls.Config) (*tlsConn, error) {
@@ -50,16 +50,16 @@ func dialTLSConn(addr string, timeout time.Duration, tlsConfig *tls.Config) (*tl
 	}
 
 	return &tlsConn{
-		connection: conn,
-		timeout:    timeout,
-		live:       true,
+		Conn:    conn,
+		timeout: timeout,
+		live:    true,
 	}, nil
 }
 
 func rcvTLSConn(conn net.Conn) *tlsConn {
 	return &tlsConn{
-		connection: conn,
-		live:       true,
+		Conn: conn,
+		live: true,
 	}
 }
 
@@ -67,7 +67,7 @@ func rcvTLSConn(conn net.Conn) *tlsConn {
 func (conn *tlsConn) Write(b []byte) (int, error) {
 	conn.lock.Lock()
 	defer conn.lock.Unlock()
-	n, err := conn.connection.Write(b)
+	n, err := conn.Conn.Write(b)
 
 	if err != nil {
 		conn.live = false
@@ -115,10 +115,10 @@ func (conn *tlsConn) writeStream() error {
 // read returns a packet for packet connections or an error if there is one.
 // It returns nothing if the connection is meant to be streamed.
 func (conn *tlsConn) read() (*memberlist.Packet, error) {
-	if conn.connection == nil {
+	if conn.Conn == nil {
 		return nil, errors.New("nil connection")
 	}
-	reader := bufio.NewReader(conn.connection)
+	reader := bufio.NewReader(conn.Conn)
 	lenBuf := make([]byte, uint32length)
 	_, err := io.ReadFull(reader, lenBuf)
 	if err != nil {
@@ -155,4 +155,13 @@ func toPacket(pb clusterpb.MemberlistMessage) (*memberlist.Packet, error) {
 		From:      addr,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func (conn *tlsConn) Close() error {
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	if conn.Conn != nil {
+		return conn.Conn.Close()
+	}
+	return nil
 }

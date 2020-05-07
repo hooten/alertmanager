@@ -14,13 +14,16 @@ package cluster
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 type connectionPool struct {
 	conns     map[string]*tlsConn
 	tlsConfig *tls.Config
+	mutex     sync.Mutex
 }
 
 func newConnectionPool(tlsConfig *tls.Config) *connectionPool {
@@ -33,6 +36,11 @@ func newConnectionPool(tlsConfig *tls.Config) *connectionPool {
 // borrowConnection returns a *tlsConn from the pool. The connection does not
 // need to be returned to the pool because there is per-connection locking.
 func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration) (*tlsConn, error) {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	if pool.conns == nil {
+		return nil, errors.New("connection pool closed")
+	}
 	var err error
 	key := fmt.Sprintf("%s/%d", addr, int64(timeout))
 	conn, ok := pool.conns[key]
@@ -44,4 +52,16 @@ func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration)
 		pool.conns[key] = conn
 	}
 	return conn, nil
+}
+
+func (pool *connectionPool) close() {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	for key, conn := range pool.conns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(pool.conns, key)
+	}
+	pool.conns = nil
 }
