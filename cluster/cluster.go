@@ -29,7 +29,6 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
-	"github.com/prometheus/alertmanager/config"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -238,7 +237,7 @@ func Create(
 
 	if tlsConfigFile != "" {
 		level.Info(l).Log("msg", "using TLS for gossip")
-		tlsConfig, err := config.GetTLSConfig(tlsConfigFile)
+		tlsConfig, err := getTLSConfig(tlsConfigFile)
 		if err != nil {
 			return nil, errors.Wrap(err, "tls config file")
 		}

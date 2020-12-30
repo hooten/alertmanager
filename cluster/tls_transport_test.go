@@ -18,11 +18,12 @@ import (
 	context2 "context"
 	"fmt"
 	"io"
+	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-kit/kit/log"
-	"github.com/prometheus/alertmanager/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,7 @@ func TestNewTLSTransport(t *testing.T) {
 	}
 	l := log.NewNopLogger()
 	for _, tc := range testCases {
-		tlsConf, _ := config.GetTLSConfig(tc.tlsConfFile)
+		tlsConf, _ := getTLSConfig(tc.tlsConfFile)
 		transport, err := NewTLSTransport(context2.Background(), l, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		if len(tc.err) > 0 {
 			require.Equal(t, tc.err, err.Error())
@@ -77,7 +78,7 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 		{bindAddr: localhost, bindPort: 9095, inputIp: "", inputPort: 0, expectedIp: localhost, expectedPort: 9095},
 	}
 	for _, tc := range testCases {
-		tlsConf, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
+		tlsConf, _ := getTLSConfig("testdata/tls_config_node1.yml")
 		transport, err := NewTLSTransport(context2.Background(), logger, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		require.Nil(t, err)
 		ip, port, err := transport.FinalAdvertiseAddr(tc.inputIp, tc.inputPort)
@@ -102,11 +103,11 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 }
 
 func TestWriteTo(t *testing.T) {
-	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := config.GetTLSConfig("testdata/tls_config_node2.yml")
+	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
 	t2, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
 	defer t2.Shutdown()
 
@@ -121,11 +122,11 @@ func TestWriteTo(t *testing.T) {
 }
 
 func BenchmarkWriteTo(b *testing.B) {
-	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := config.GetTLSConfig("testdata/tls_config_node2.yml")
+	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
 	t2, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
 	defer t2.Shutdown()
 
@@ -141,24 +142,37 @@ func BenchmarkWriteTo(b *testing.B) {
 	require.Equal(b, sent, packet.Buf)
 	require.Equal(b, from, packet.From.String())
 }
+
 func TestDialTimout(t *testing.T) {
-	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
-	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
+	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
+	t1, err := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
+	require.Nil(t, err)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := config.GetTLSConfig("testdata/tls_config_node2.yml")
-	t2, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
+	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
+	t2, err := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
+	require.Nil(t, err)
 	defer t2.Shutdown()
 
 	addr := fmt.Sprintf("%s:%d", t2.bindAddr, t2.GetAutoBindPort())
 	from, err := t1.DialTimeout(addr, 5*time.Second)
 	require.Nil(t, err)
 	defer from.Close()
-	to := <-t2.StreamCh()
+
+	var to net.Conn
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		to = <-t2.StreamCh()
+		wg.Done()
+	}()
 
 	sent := []byte(("test stream"))
-	_, err = from.Write(sent)
+	m, err := from.Write(sent)
 	require.Nil(t, err)
+	require.Greater(t, m, 0)
+
+	wg.Wait()
 
 	reader := bufio.NewReader(to)
 	buf := make([]byte, len(sent))
@@ -178,7 +192,7 @@ func (l *logWr) Write(p []byte) (n int, err error) {
 }
 
 func TestShutdown(t *testing.T) {
-	tlsConf1, _ := config.GetTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
 	l := &logWr{}
 	t1, _ := NewTLSTransport(context2.Background(), log.NewLogfmtLogger(l), nil, "127.0.0.1", 0, tlsConf1)
 	// Sleeping to make sure listeners have started and can subsequently be shut down gracefully.
