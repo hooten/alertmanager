@@ -40,7 +40,10 @@ func getConfig(configPath string) (*https.Config, error) {
 	return c, err
 }
 
-func getTLSConfig(configPath string) (*tls.Config, error) {
+func GetTLSConfig(configPath string) (*tls.Config, error) {
+	if configPath == "" {
+		return nil, nil
+	}
 	c, err := getConfig(configPath)
 	if err != nil {
 		return nil, err

@@ -1,7 +1,7 @@
 # TLS Config Example
 
 ## Usage
-1. Add [`certs/node1.pem`](certs/node1.pem), [`certs/node2.pem`](certs/node2.pem), and [`certs/ca.pem`](certs/ca.pem) to your trusted certificates.
+1. Add [`certs/ca.pem`](certs/ca.pem) to your trusted roots.
 2. Install dependencies:
    1. `go install github.com/cloudflare/cfssl/cmd/cfssl`
    2. `go install github.com/cloudflare/cfssl/cmd/cfssl`

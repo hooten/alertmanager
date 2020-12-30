@@ -52,7 +52,7 @@ func testJoinLeave(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -80,7 +80,7 @@ func testJoinLeave(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p2)
@@ -113,7 +113,7 @@ func testReconnect(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -137,7 +137,7 @@ func testReconnect(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p2)
@@ -176,7 +176,7 @@ func testRemoveFailedPeers(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -226,7 +226,7 @@ func testInitiallyFailingPeers(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"",
+		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -258,6 +258,9 @@ func testInitiallyFailingPeers(t *testing.T) {
 
 func testTLSConnection(t *testing.T) {
 	logger := log.NewNopLogger()
+	tlsConfig1, err := GetTLSConfig("./testdata/tls_config_node1.yml")
+	require.NoError(t, err)
+	tlsConfig1.RootCAs = tlsConfig1.ClientCAs
 	p1, err := Create(
 		logger,
 		prometheus.NewRegistry(),
@@ -270,7 +273,7 @@ func testTLSConnection(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"./testdata/tls_config_node1.yml",
+		tlsConfig1,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p1)
@@ -286,6 +289,9 @@ func testTLSConnection(t *testing.T) {
 	require.Equal(t, p1.Status(), "ready")
 
 	// Create the peer who joins the first.
+	tlsConfig2, err := GetTLSConfig("./testdata/tls_config_node2.yml")
+	require.NoError(t, err)
+	tlsConfig2.RootCAs = tlsConfig2.ClientCAs
 	p2, err := Create(
 		logger,
 		prometheus.NewRegistry(),
@@ -298,7 +304,7 @@ func testTLSConnection(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		"./testdata/tls_config_node2.yml",
+		tlsConfig2,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p2)

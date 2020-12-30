@@ -16,6 +16,7 @@ package cluster
 import (
 	"bufio"
 	context2 "context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -43,7 +44,7 @@ func TestNewTLSTransport(t *testing.T) {
 	}
 	l := log.NewNopLogger()
 	for _, tc := range testCases {
-		tlsConf, _ := getTLSConfig(tc.tlsConfFile)
+		tlsConf, _ := GetTLSConfig(tc.tlsConfFile)
 		transport, err := NewTLSTransport(context2.Background(), l, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		if len(tc.err) > 0 {
 			require.Equal(t, tc.err, err.Error())
@@ -78,7 +79,7 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 		{bindAddr: localhost, bindPort: 9095, inputIp: "", inputPort: 0, expectedIp: localhost, expectedPort: 9095},
 	}
 	for _, tc := range testCases {
-		tlsConf, _ := getTLSConfig("testdata/tls_config_node1.yml")
+		tlsConf := tlsConfig("testdata/tls_config_node1.yml")
 		transport, err := NewTLSTransport(context2.Background(), logger, nil, tc.bindAddr, tc.bindPort, tlsConf)
 		require.Nil(t, err)
 		ip, port, err := transport.FinalAdvertiseAddr(tc.inputIp, tc.inputPort)
@@ -103,11 +104,11 @@ func TestFinalAdvertiseAddr(t *testing.T) {
 }
 
 func TestWriteTo(t *testing.T) {
-	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1 := tlsConfig("testdata/tls_config_node1.yml")
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
+	tlsConf2 := tlsConfig("testdata/tls_config_node2.yml")
 	t2, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
 	defer t2.Shutdown()
 
@@ -122,11 +123,11 @@ func TestWriteTo(t *testing.T) {
 }
 
 func BenchmarkWriteTo(b *testing.B) {
-	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1 := tlsConfig("testdata/tls_config_node1.yml")
 	t1, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
+	tlsConf2 := tlsConfig("testdata/tls_config_node2.yml")
 	t2, _ := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
 	defer t2.Shutdown()
 
@@ -144,12 +145,12 @@ func BenchmarkWriteTo(b *testing.B) {
 }
 
 func TestDialTimout(t *testing.T) {
-	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1 := tlsConfig("testdata/tls_config_node1.yml")
 	t1, err := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf1)
 	require.Nil(t, err)
 	defer t1.Shutdown()
 
-	tlsConf2, _ := getTLSConfig("testdata/tls_config_node2.yml")
+	tlsConf2 := tlsConfig("testdata/tls_config_node2.yml")
 	t2, err := NewTLSTransport(context2.Background(), logger, nil, "127.0.0.1", 0, tlsConf2)
 	require.Nil(t, err)
 	defer t2.Shutdown()
@@ -192,7 +193,7 @@ func (l *logWr) Write(p []byte) (n int, err error) {
 }
 
 func TestShutdown(t *testing.T) {
-	tlsConf1, _ := getTLSConfig("testdata/tls_config_node1.yml")
+	tlsConf1 := tlsConfig("testdata/tls_config_node1.yml")
 	l := &logWr{}
 	t1, _ := NewTLSTransport(context2.Background(), log.NewLogfmtLogger(l), nil, "127.0.0.1", 0, tlsConf1)
 	// Sleeping to make sure listeners have started and can subsequently be shut down gracefully.
@@ -201,4 +202,13 @@ func TestShutdown(t *testing.T) {
 	require.Nil(t, err)
 	require.NotContains(t, string(l.bytes), "use of closed network connection")
 	require.Contains(t, string(l.bytes), "shutting down tls transport")
+}
+
+func tlsConfig(filename string) *tls.Config {
+	config, err := GetTLSConfig(filename)
+	if err != nil {
+		panic(err)
+	}
+	config.RootCAs = config.ClientCAs
+	return config
 }
