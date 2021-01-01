@@ -14,8 +14,10 @@
 package cluster
 
 import (
+	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -64,4 +66,61 @@ func TestRead_Nil(t *testing.T) {
 	packet, err := (&tlsConn{}).read()
 	require.Nil(t, packet)
 	require.NotNil(t, err)
+}
+
+func TestTLSConn_Close(t *testing.T) {
+	testCases := []string{
+		"foo",
+		"bar",
+	}
+	for _, tc := range testCases {
+		c := &tlsConn{
+			connection: &mockConn{
+				errMsg: tc,
+			},
+			live: true,
+		}
+		err := c.Close()
+		require.Equal(t, errors.New(tc), err, tc)
+		require.False(t, c.alive())
+		require.True(t, c.connection.(*mockConn).closed)
+	}
+}
+
+type mockConn struct {
+	closed bool
+	errMsg string
+}
+
+func (m *mockConn) Read(b []byte) (n int, err error) {
+	panic("implement me")
+}
+
+func (m *mockConn) Write(b []byte) (n int, err error) {
+	panic("implement me")
+}
+
+func (m *mockConn) Close() error {
+	m.closed = true
+	return errors.New(m.errMsg)
+}
+
+func (m *mockConn) LocalAddr() net.Addr {
+	panic("implement me")
+}
+
+func (m *mockConn) RemoteAddr() net.Addr {
+	panic("implement me")
+}
+
+func (m *mockConn) SetDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (m *mockConn) SetReadDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (m *mockConn) SetWriteDeadline(t time.Time) error {
+	panic("implement me")
 }

@@ -95,7 +95,7 @@ func NewTLSTransport(
 		listener:  listener,
 		packetCh:  make(chan *memberlist.Packet),
 		streamCh:  make(chan net.Conn),
-		connPool:  newConnectionPool(),
+		connPool:  newConnectionPool(tlsConf),
 		tlsConfig: tlsConf,
 	}
 
@@ -167,15 +167,16 @@ func (t *TLSTransport) Shutdown() error {
 	level.Debug(t.logger).Log("msg", "shutting down tls transport")
 	t.cancel()
 	err := t.listener.Close()
+	t.connPool.shutdown()
 	<-t.done
 	return err
 }
 
 // WriteTo is a packet-oriented interface that borrows a connection
-// from the conns, and writes to it. It also returns a timestamp of when
+// from the pool, and writes to it. It also returns a timestamp of when
 // the packet was written.
 func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
-	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout, t.tlsConfig)
+	conn, err := t.connPool.borrowConnection(addr, DefaultTcpTimeout)
 	if err != nil {
 		t.writeErrs.WithLabelValues("packet").Inc()
 		return time.Now(), errors.Wrap(err, "failed to dial")

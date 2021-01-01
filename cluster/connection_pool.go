@@ -14,32 +14,54 @@ package cluster
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 type connectionPool struct {
-	conns map[string]*tlsConn
+	connections map[string]*tlsConn
+	tlsConfig   *tls.Config
+	lock        sync.Mutex
 }
 
-func newConnectionPool() *connectionPool {
+func newConnectionPool(tlsConfig *tls.Config) *connectionPool {
 	return &connectionPool{
-		conns: make(map[string]*tlsConn),
+		connections: make(map[string]*tlsConn),
+		tlsConfig:   tlsConfig,
 	}
 }
 
 // borrowConnection returns a *tlsConn from the pool. The connection does not
-// need to be returned to the pool because there is per-connection locking.
-func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration, tlsConfig *tls.Config) (*tlsConn, error) {
+// need to be returned to the pool because each connection has its own locking.
+func (pool *connectionPool) borrowConnection(addr string, timeout time.Duration) (*tlsConn, error) {
+	pool.lock.Lock()
+	defer pool.lock.Unlock()
+	if pool.connections == nil {
+		return nil, errors.New("connection pool closed")
+	}
 	var err error
 	key := fmt.Sprintf("%s/%d", addr, int64(timeout))
-	conn, ok := pool.conns[key]
+	conn, ok := pool.connections[key]
 	if !ok || !conn.alive() {
-		conn, err = dialTLSConn(addr, timeout, tlsConfig)
+		conn, err = dialTLSConn(addr, timeout, pool.tlsConfig)
 		if err != nil {
 			return nil, err
 		}
-		pool.conns[key] = conn
+		pool.connections[key] = conn
 	}
 	return conn, nil
+}
+
+func (pool *connectionPool) shutdown() {
+	pool.lock.Lock()
+	defer pool.lock.Unlock()
+	for key, conn := range pool.connections {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(pool.connections, key)
+	}
+	pool.connections = nil
 }

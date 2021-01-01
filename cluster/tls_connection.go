@@ -76,6 +76,8 @@ func (conn *tlsConn) Write(b []byte) (int, error) {
 }
 
 func (conn *tlsConn) alive() bool {
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
 	return conn.live
 }
 
@@ -155,4 +157,14 @@ func toPacket(pb clusterpb.MemberlistMessage) (*memberlist.Packet, error) {
 		From:      addr,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func (conn *tlsConn) Close() error {
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	conn.live = false
+	if conn.connection == nil {
+		return nil
+	}
+	return conn.connection.Close()
 }
