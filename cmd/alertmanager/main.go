@@ -228,9 +228,9 @@ func run() int {
 		return 1
 	}
 
-	tlsConfig, err := cluster.GetTLSConfig(*tlsConfigFile)
+	tlsTransportConfig, err := cluster.GetTLSTransportConfig(*tlsConfigFile)
 	if err != nil {
-		level.Error(logger).Log("msg", "bad tls configuration", "err", err)
+		level.Error(logger).Log("msg", "bad tls transport configuration", "err", err)
 		return 1
 	}
 	var peer *cluster.Peer
@@ -247,7 +247,7 @@ func run() int {
 			*tcpTimeout,
 			*probeTimeout,
 			*probeInterval,
-			tlsConfig,
+			tlsTransportConfig,
 		)
 		if err != nil {
 			level.Error(logger).Log("msg", "unable to initialize gossip mesh", "err", err)

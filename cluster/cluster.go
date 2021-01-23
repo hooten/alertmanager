@@ -15,7 +15,6 @@ package cluster
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"math/rand"
 	"net"
@@ -141,7 +140,7 @@ func Create(
 	tcpTimeout time.Duration,
 	probeTimeout time.Duration,
 	probeInterval time.Duration,
-	tlsConfig *tls.Config,
+	tlsTransportConfig *TLSTransportConfig,
 ) (*Peer, error) {
 	bindHost, bindPortStr, err := net.SplitHostPort(bindAddr)
 	if err != nil {
@@ -236,9 +235,9 @@ func Create(
 		p.setInitialFailed(resolvedPeers, bindAddr)
 	}
 
-	if tlsConfig != nil {
+	if tlsTransportConfig != nil {
 		level.Info(l).Log("msg", "using TLS for gossip")
-		cfg.Transport, err = NewTLSTransport(context.Background(), l, reg, cfg.BindAddr, cfg.BindPort, tlsConfig)
+		cfg.Transport, err = NewTLSTransport(context.Background(), l, reg, cfg.BindAddr, cfg.BindPort, tlsTransportConfig)
 		if err != nil {
 			return nil, errors.Wrap(err, "tls transport")
 		}

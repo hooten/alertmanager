@@ -18,35 +18,35 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	"github.com/prometheus/exporter-toolkit/https"
+	common "github.com/prometheus/common/config"
+	"github.com/prometheus/exporter-toolkit/web"
 	"gopkg.in/yaml.v2"
 )
 
-func getConfig(configPath string) (*https.Config, error) {
-	content, err := ioutil.ReadFile(configPath)
+type TLSTransportConfig struct {
+	TLSServerConfig *web.TLSStruct    `yaml:"tls_server_config"`
+	TLSClientConfig *common.TLSConfig `yaml:"tls_client_config"`
+}
+
+func GetTLSTransportConfig(configPath string) (*TLSTransportConfig, error) {
+	if configPath == "" {
+		return nil, nil
+	}
+	bytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	c := &https.Config{
-		TLSConfig: https.TLSStruct{
+	config := &TLSTransportConfig{
+		TLSServerConfig: &web.TLSStruct{
 			MinVersion:               tls.VersionTLS12,
 			MaxVersion:               tls.VersionTLS13,
 			PreferServerCipherSuites: true,
 		},
-		HTTPConfig: https.HTTPStruct{HTTP2: true},
 	}
-	err = yaml.UnmarshalStrict(content, c)
-	c.TLSConfig.SetDirectory(filepath.Dir(configPath))
-	return c, err
-}
-
-func GetTLSConfig(configPath string) (*tls.Config, error) {
-	if configPath == "" {
-		return nil, nil
-	}
-	c, err := getConfig(configPath)
-	if err != nil {
+	if err := yaml.UnmarshalStrict(bytes, config); err != nil {
 		return nil, err
 	}
-	return https.ConfigToTLSConfig(&c.TLSConfig)
+	config.TLSServerConfig.SetDirectory(filepath.Dir(configPath))
+	config.TLSClientConfig.SetDirectory(filepath.Dir(configPath))
+	return config, nil
 }

@@ -258,9 +258,8 @@ func testInitiallyFailingPeers(t *testing.T) {
 
 func testTLSConnection(t *testing.T) {
 	logger := log.NewNopLogger()
-	tlsConfig1, err := GetTLSConfig("./testdata/tls_config_node1.yml")
+	tlsTransportConfig1, err := GetTLSTransportConfig("./testdata/tls_config_node1.yml")
 	require.NoError(t, err)
-	tlsConfig1.RootCAs = tlsConfig1.ClientCAs
 	p1, err := Create(
 		logger,
 		prometheus.NewRegistry(),
@@ -273,7 +272,7 @@ func testTLSConnection(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		tlsConfig1,
+		tlsTransportConfig1,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p1)
@@ -289,9 +288,8 @@ func testTLSConnection(t *testing.T) {
 	require.Equal(t, p1.Status(), "ready")
 
 	// Create the peer who joins the first.
-	tlsConfig2, err := GetTLSConfig("./testdata/tls_config_node2.yml")
+	tlsTransportConfig2, err := GetTLSTransportConfig("./testdata/tls_config_node2.yml")
 	require.NoError(t, err)
-	tlsConfig2.RootCAs = tlsConfig2.ClientCAs
 	p2, err := Create(
 		logger,
 		prometheus.NewRegistry(),
@@ -304,7 +302,7 @@ func testTLSConnection(t *testing.T) {
 		DefaultTcpTimeout,
 		DefaultProbeTimeout,
 		DefaultProbeInterval,
-		tlsConfig2,
+		tlsTransportConfig2,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, p2)

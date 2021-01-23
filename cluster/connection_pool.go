@@ -26,10 +26,10 @@ type connectionPool struct {
 	lock        sync.Mutex
 }
 
-func newConnectionPool(tlsConfig *tls.Config) *connectionPool {
+func newConnectionPool(tlsClientCfg *tls.Config) *connectionPool {
 	return &connectionPool{
 		connections: make(map[string]*tlsConn),
-		tlsConfig:   tlsConfig,
+		tlsConfig:   tlsClientCfg,
 	}
 }
 

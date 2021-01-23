@@ -31,6 +31,8 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	common "github.com/prometheus/common/config"
+	"github.com/prometheus/exporter-toolkit/web"
 )
 
 const (
@@ -42,17 +44,18 @@ const (
 // TLSTransport is a Transport implementation that uses TLS over TCP for both
 // packet and stream operations.
 type TLSTransport struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    log.Logger
-	bindAddr  string
-	bindPort  int
-	done      chan struct{}
-	listener  net.Listener
-	packetCh  chan *memberlist.Packet
-	streamCh  chan net.Conn
-	connPool  *connectionPool
-	tlsConfig *tls.Config
+	ctx          context.Context
+	cancel       context.CancelFunc
+	logger       log.Logger
+	bindAddr     string
+	bindPort     int
+	done         chan struct{}
+	listener     net.Listener
+	packetCh     chan *memberlist.Packet
+	streamCh     chan net.Conn
+	connPool     *connectionPool
+	tlsServerCfg *tls.Config
+	tlsClientCfg *tls.Config
 
 	packetsSent prometheus.Counter
 	packetsRcvd prometheus.Counter
@@ -72,31 +75,42 @@ func NewTLSTransport(
 	reg prometheus.Registerer,
 	bindAddr string,
 	bindPort int,
-	tlsConf *tls.Config,
+	cfg *TLSTransportConfig,
 ) (*TLSTransport, error) {
-
+	if cfg == nil {
+		return nil, errors.New("must specify TLSTransportConfig")
+	}
+	tlsServerCfg, err := web.ConfigToTLSConfig(cfg.TLSServerConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid TLS server config")
+	}
+	tlsClientCfg, err := common.NewTLSConfig(cfg.TLSClientConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid TLS client config")
+	}
 	ip := net.ParseIP(bindAddr)
 	if ip == nil {
 		return nil, fmt.Errorf("invalid bind address \"%s\"", bindAddr)
 	}
 	addr := &net.TCPAddr{IP: ip, Port: bindPort}
-	listener, err := tls.Listen(network, addr.String(), tlsConf)
+	listener, err := tls.Listen(network, addr.String(), tlsServerCfg)
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to start TLS listener on %q port %d", bindAddr, bindPort))
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	t := &TLSTransport{
-		ctx:       ctx,
-		cancel:    cancel,
-		logger:    logger,
-		bindAddr:  bindAddr,
-		bindPort:  bindPort,
-		done:      make(chan struct{}),
-		listener:  listener,
-		packetCh:  make(chan *memberlist.Packet),
-		streamCh:  make(chan net.Conn),
-		connPool:  newConnectionPool(tlsConf),
-		tlsConfig: tlsConf,
+		ctx:          ctx,
+		cancel:       cancel,
+		logger:       logger,
+		bindAddr:     bindAddr,
+		bindPort:     bindPort,
+		done:         make(chan struct{}),
+		listener:     listener,
+		packetCh:     make(chan *memberlist.Packet),
+		streamCh:     make(chan net.Conn),
+		connPool:     newConnectionPool(tlsClientCfg),
+		tlsServerCfg: tlsServerCfg,
+		tlsClientCfg: tlsClientCfg,
 	}
 
 	t.registerMetrics(reg)
@@ -194,7 +208,7 @@ func (t *TLSTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 // DialTimeout is used to create a connection that allows memberlist
 // to perform two-way communications with a peer.
 func (t *TLSTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn, error) {
-	conn, err := dialTLSConn(addr, timeout, t.tlsConfig)
+	conn, err := dialTLSConn(addr, timeout, t.tlsClientCfg)
 	if err != nil {
 		t.writeErrs.WithLabelValues("stream").Inc()
 		return nil, errors.Wrap(err, "failed to dial")
