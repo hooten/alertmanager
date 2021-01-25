@@ -14,18 +14,17 @@
 package cluster
 
 import (
-	"crypto/tls"
 	"io/ioutil"
 	"path/filepath"
 
-	common "github.com/prometheus/common/config"
+	"github.com/prometheus/common/config"
 	"github.com/prometheus/exporter-toolkit/web"
 	"gopkg.in/yaml.v2"
 )
 
 type TLSTransportConfig struct {
 	TLSServerConfig *web.TLSStruct    `yaml:"tls_server_config"`
-	TLSClientConfig *common.TLSConfig `yaml:"tls_client_config"`
+	TLSClientConfig *config.TLSConfig `yaml:"tls_client_config"`
 }
 
 func GetTLSTransportConfig(configPath string) (*TLSTransportConfig, error) {
@@ -36,17 +35,11 @@ func GetTLSTransportConfig(configPath string) (*TLSTransportConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := &TLSTransportConfig{
-		TLSServerConfig: &web.TLSStruct{
-			MinVersion:               tls.VersionTLS12,
-			MaxVersion:               tls.VersionTLS13,
-			PreferServerCipherSuites: true,
-		},
-	}
-	if err := yaml.UnmarshalStrict(bytes, config); err != nil {
+	cfg := &TLSTransportConfig{}
+	if err := yaml.UnmarshalStrict(bytes, cfg); err != nil {
 		return nil, err
 	}
-	config.TLSServerConfig.SetDirectory(filepath.Dir(configPath))
-	config.TLSClientConfig.SetDirectory(filepath.Dir(configPath))
-	return config, nil
+	cfg.TLSServerConfig.SetDirectory(filepath.Dir(configPath))
+	cfg.TLSClientConfig.SetDirectory(filepath.Dir(configPath))
+	return cfg, nil
 }
